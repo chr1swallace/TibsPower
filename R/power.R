@@ -25,7 +25,7 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
         cat("\nsample size",nstar,"\n")
         ## pick nstar "pairs" from norm
         pairs <- t(sapply(as.list(1:nstar),function(x) sample(1:12,2)))
-        sim.data <- norm[pairs[,1]]-norm[pairs[,2]]
+        sim.data <- norm[,pairs[,1]]-norm[,pairs[,2]]
         d.sd <- apply(sim.data,1,sd)
         d <- apply(sim.data,1,mean)/d.sd
         
