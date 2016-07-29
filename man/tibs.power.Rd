@@ -4,7 +4,10 @@
 \alias{tibs.power}
 \title{tibs.power}
 \usage{
-tibs.power(norm, ngenes.diff, fold.diff, nsim, sample.sizes, p.thr)
+tibs.power(norm, ngenes.diff, fold.diff, nsim, sample.sizes,
+  p.thr = numeric(0), n.thr = numeric(0),
+  sample.sizes.stage2 = numeric(0), p.thr.stage2 = numeric(0),
+  p.stage2.method = c("bonf", "fixed"))
 }
 \arguments{
 \item{norm}{matrix of normalized gene expression values from a reference expt}
@@ -17,7 +20,15 @@ tibs.power(norm, ngenes.diff, fold.diff, nsim, sample.sizes, p.thr)
 
 \item{sample.sizes}{number of pairs of samples in simulated experiment, can be a vector}
 
-\item{p.thr}{p value threshold for calling significance, can be a vector}
+\item{p.thr}{p value threshold for calling significance, can be a vector to specify multiple values.  You should use only one of p.thr and n.thr.}
+
+\item{n.thr}{threshold for calling the top n genes significant, can be a vector to specify multiple values.  You should use only one of p.thr and n.thr.}
+
+\item{sample.sizes.stage2}{number of pairs of samples in an optional stage 2 of the simulated experiment, can be a vector to specify multiple values.}
+
+\item{p.thr.stage2}{p value threshold for calling significance in an optional stage 2 of the simulated experiment, can NOT be a vector}
+
+\item{p.stage2.method}{by default, the p.thr.stage2 will be adjusted using Bonferroni conditional on the number of genes rejected at stage one.  Set p.stage2.method="fixed" to use this p.thr.stage2 unadjusted.}
 }
 \value{
 list summarising the median, 5th and 95th centiles of the false discovery rate (FDR) and false negative rate (FNR)
@@ -26,7 +37,23 @@ list summarising the median, 5th and 95th centiles of the false discovery rate (
 Estimate power for microarray studies by resampling existing dataset
 }
 \details{
-Uses Tibshirani method (2006)
+Uses Tibshirani method (2006).
+
+Note that this function uses mclapply to parallelise sampling.  Setting `options(mc.cores=...)` can help speed things up if you have multiple cores available.  See ?mclapply for details.
+}
+\examples{
+## Suppose we have a reference expression dataset
+norm <- matrix(rnorm(2000),200,10)
+## We want to examine power for the following scenario:
+tibs.power(norm,
+ngenes.diff=10, # 10 genes are truly differentially expressed
+fold.diff=2, # fold difference is 2 at those differentially expressed genes
+nsim=10, # average 10 simulated experiments (in reality, should use many more)
+sample.sizes=c(4,8), # first stage will use either 4 or 8 pairs
+n.thr=50, # take the top 50 genes through to stage 2
+sample.sizes.stage2=c(20,5), # stage 2 will use either 20 or 5 pairs
+p.thr.stage2=0.05, # alpha at stage 2 is 0.05 ...
+p.stage2.method="bonf") # ... and is corrected for the number of genes tested (50) by Bonferroni
 }
 \author{
 Chris Wallace
