@@ -80,7 +80,7 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
     message("running ",nsim," simulations for each of ",length(retlist)," scenarios.")
     
     ## pb <- txtProgressBar(min = 0, max = length(retlist), style = 3)
-    retlist <- lapply(retlist, function(ret) {
+    retlist <- mclapply(retlist, function(ret) {
 
       ##   setTxtProgressBar(pb, i); 
         ## constant within ret
