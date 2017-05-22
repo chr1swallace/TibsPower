@@ -80,7 +80,7 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
     message("running ",nsim," simulations for each of ",length(retlist)," scenarios.")
     
     ## pb <- txtProgressBar(min = 0, max = length(retlist), style = 3)
-    retlist <- mclapply(retlist, function(ret) {
+    retlist <- lapply(retlist, function(ret) {
 
       ##   setTxtProgressBar(pb, i); 
         ## constant within ret
@@ -103,7 +103,7 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
             ## system.time(dstar <- simd3(norm,nstar,genes.diff,fold.diff))
             dstar <- simindep(norm,ng1,ng2,genes.diff,fold.diff)
             rejected <- if(length(p.thr)) {
-                            rejected.p(dstar,ret$alpha,nstar)
+                            rejected.p(dstar,ret$alpha,ng1+ng2-1)
                         } else {
                             rejected.n(dstar,ret$n)
                         }
