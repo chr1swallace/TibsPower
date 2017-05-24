@@ -61,14 +61,14 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
     
     ## set up
     ngenes <- nrow(norm)
-    vars <- list(ngenes.diff=ngenes.diff,fold.diff=fold.diff,ngroup1=sample.sizes,ngroup2=round(sample.sizes * sample.ratio))    
+    vars <- list(ngenes.diff=ngenes.diff,fold.diff=fold.diff,ngroup1=sample.sizes,sample.ratio=sample.ratio)   
     if(length(p.thr)) {
         vars <- c(vars,list(alpha=p.thr))
     } else {
         vars <- c(vars,list(n=n.thr))
     }
     twostage <- FALSE
-    splitvars <- c("ngenes.diff","fold.diff","ngroup1","ngroup2")
+    splitvars <- c("ngenes.diff","fold.diff","ngroup1","sample.ratio")
     if(length(sample.sizes.stage2)) {
         twostage <- TRUE
         vars <- c(vars,list(npairs.2=sample.sizes.stage2))
@@ -76,13 +76,18 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
     }
     ret <- do.call("expand.grid",vars)
     ret$fdr.95 <- ret$fdr.5 <- ret$fdr.med <- ret$fnr.95 <- ret$fnr.5 <- ret$fnr.med <- NA
+    ret$ngroup2 <- round(ret$ngroup1 * ret$sample.ratio)
     retlist <- split(ret, ret[,splitvars])
     message("running ",nsim," simulations for each of ",length(retlist)," scenarios.")
     
-    ## pb <- txtProgressBar(min = 0, max = length(retlist), style = 3)
+    pb <- txtProgressBar(min = 0, max = length(retlist), style = 3)
+                                        #done <- mclapply(seq_along(retlist), function(i) {
+    i=0
+    v <- apply(norm,1,var)
     retlist <- mclapply(retlist, function(ret) {
-
-      ##   setTxtProgressBar(pb, i); 
+        i=i +1
+        setTxtProgressBar(pb, i); 
+        ## ret <- retlist[[i]]
         ## constant within ret
         ng1 <- ret$ngroup1[1]
         ng2 <- ret$ngroup2[1]
@@ -93,15 +98,13 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
 
         if(twostage)
             nstar2 <- ret$npairs.2[1]
+
         
         for(B in 1:nsim) {
             genes.diff <- sample(1:ngenes,ngenes.diff)
 
             ## stage one
-            ## system.time(dstar <- simd(norm,nstar,genes.diff,fold.diff))
-            ## system.time(dstar <- simd2(norm,nstar,genes.diff,fold.diff))
-            ## system.time(dstar <- simd3(norm,nstar,genes.diff,fold.diff))
-            dstar <- simindep(norm,ng1,ng2,genes.diff,fold.diff)
+            dstar <- simindep(v,ng1,ng2,genes.diff,fold.diff)
             rejected <- if(length(p.thr)) {
                             rejected.p(dstar,ret$alpha,ng1+ng2-1)
                         } else {
@@ -113,12 +116,13 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
                 ret$alpha.2 <- switch(p.stage2.method,
                                       "fixed"=p.thr.stage2,
                                       "bonf"=sapply(rejected, function(r) p.thr.stage2/sum(r)))
-                d2 <- simindep(norm,nstar2,genes.diff,fold.diff)
+                d2 <- simindep(v,nstar2,genes.diff,fold.diff)
                 dstar2 <- lapply(rejected, function(r) ifelse(r,d2,NA)) # only measured if rejected at stage 1
                 rejected <- mapply(rejected.p, dstar2, ret$alpha.2, nstar2)
             }
             fdrfnr[[B]] <- ff(rejected, genes.diff)
         }
+
         fdrfnr <- do.call("rbind",fdrfnr)
         np <- ncol(fdrfnr)/2
         q <- apply(fdrfnr,2,quantile,c(0.05,0.5,0.95),na.rm=TRUE)
@@ -129,10 +133,95 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
         ret$fnr.med <- q[2,-c(1:np)]
         ret$fnr.95 <- q[3,-c(1:np)]
         return(ret)
+        ## retlist[[i]] <- ret
     })
+    close(pb)
     do.call("rbind",retlist)
 }
 
+simpaired <- function(norm,nstar,genes.diff,fold.diff) {
+    vec <- 1:ncol(norm)
+    pairs <- t(sapply(as.list(1:nstar),function(x) sample(vec,2)))
+    sim.data <- norm[,pairs[,1]]-norm[,pairs[,2]]
+    d.sd <- sqrt(rowVars(sim.data) / (nstar-1) )
+    d <- rowMeans(sim.data)/d.sd
+    d[genes.diff] <- d[genes.diff] + log2(fold.diff) / (d.sd[genes.diff])
+    return(d)
+}
+
+simindep <- function(v,nstar1,nstar2=nstar1,genes.diff,fold.diff) {
+    d.sd <- sqrt(v) * sqrt(1/nstar1 + 1/nstar2)
+    d <- rt(length(v),df=nstar1+nstar2-2)
+    d[genes.diff] <- d[genes.diff] + log2(fold.diff) / d.sd[genes.diff] 
+    return(d)
+}
+
+rejected.p <- function(dstar,p.thr,nstar) {
+    rejected <- lapply(p.thr, function(p) {
+        c.thr <- qt(p/2,nstar-1,lower.tail=FALSE)    
+        ifelse(is.na(dstar), FALSE, abs(dstar)>c.thr)
+    })
+    return(rejected)
+}
+rejected.n <- function(dstar,n.thr) {
+    r <- rank(abs(dstar))
+    mxr <- max(r)
+    rejected <- lapply(n.thr, function(n) {
+        r > mxr - n
+    })
+    return(rejected)
+}
+ff <- function(rejected,genes.diff) {
+    nr <- unlist(lapply(rejected, sum, na.rm=TRUE))
+    V <- unlist(lapply(rejected, function(r) sum(r[-genes.diff],na.rm=TRUE)))
+    T <- unlist(lapply(rejected, function(r) sum(!r[genes.diff],na.rm=TRUE)))
+    fdr <- V/nr
+    fnr <- T/length(genes.diff)
+    if(any(nr==0)) {
+        wh <- which(nr==0)
+        fdr[wh] <- 0
+        fnr[wh] <- 1
+    }
+    c(fdr,fnr)
+}
+
+##' Plot FDR or FNR results of power.tibs()
+##'
+##' @title plot_fnr and plot_fdr
+##' @param x object returned by power.tibs()
+##' @export
+##' @return plot of fnr or fdr against sample size (number of pairs) is drawn on current graphics device
+##' @author Chris Wallace
+plot_fdr <- function(x) {
+     plotter(x,what="fdr")
+}
+
+##' @export
+##' @rdname plot_fdr
+plot_fnr <- function(x) {
+    plotter(x,what="fnr")
+}
+
+plotter <- function(x,what=c("fdr","fnr")) {
+        if("alpha" %in% colnames(x)) {
+            x$lt <- as.factor(x$alpha)
+            lt.nm <- "alpha"
+        } else {
+            x$lt <- as.factor(x$n)
+            lt.nm <- "n genes"
+        }
+
+        what=match.arg(what)
+        if(what=="fdr") {
+            p <- ggplot(x, aes_(x=~npairs,col=~lt,y=~fdr.med,ymin=~fdr.5,ymax=~fdr.95)) + ggtitle("False Discovery Rate") + ylab("FDR")
+        } else {
+            p <- ggplot(x, aes_(x=~npairs,col=~lt,y=~fnr.med,ymin=~fnr.5,ymax=~fnr.95)) + ggtitle("False Negative Rate") + ylab("FNR")
+        }
+ 
+        p + geom_pointrange() + geom_path(aes_(lty=~lt)) + xlab("Sample Size") + facet_wrap(ngenes.diff ~ fold.diff, labeller=label_both) + scale_colour_discrete(lt.nm) + scale_linetype_discrete(lt.nm)
+}
+    
+    
 ##' Estimate power for microarray studies by resampling existing dataset
 ##'
 ##' Uses Tibshirani method (2006).
@@ -257,94 +346,3 @@ tibs.paired <- function(norm,ngenes.diff,fold.diff,nsim,
 }
 
 
-simpaired <- function(norm,nstar,genes.diff,fold.diff) {
-    vec <- 1:ncol(norm)
-    pairs <- t(sapply(as.list(1:nstar),function(x) sample(vec,2)))
-    sim.data <- norm[,pairs[,1]]-norm[,pairs[,2]]
-    d.sd <- sqrt(rowVars(sim.data) / (nstar-1) )
-    d <- rowMeans(sim.data)/d.sd
-    d[genes.diff] <- d[genes.diff] + log2(fold.diff) / (d.sd[genes.diff])
-    return(d)
-}
-
-simindep <- function(norm,nstar1,nstar2=nstar1,genes.diff,fold.diff) {
-    vec <- 1:ncol(norm)
-    g1 <- sample(vec,nstar1,replace=TRUE)
-    g2 <- sample(vec,nstar2,replace=TRUE)
-    g1.data <- norm[,g1]
-    g2.data <- norm[,g2]
-    m <- rowMeans(g1.data)-rowMeans(g2.data)
-    d.var <- (nstar1-1) * apply(g1.data,1,var) + (nstar2-1) * apply(g2.data,1,var)
-    d.var <- d.var / (nstar1 + nstar2 -2)
-    d.sd <- sqrt(d.var)
-    d <- m/d.sd
-    d[genes.diff] <- d[genes.diff] + log2(fold.diff) / (d.sd[genes.diff])
-    return(d)
-}
-
-rejected.p <- function(dstar,p.thr,nstar) {
-    rejected <- lapply(p.thr, function(p) {
-        c.thr <- qt(p/2,nstar-1,lower.tail=FALSE)    
-        ifelse(is.na(dstar), FALSE, abs(dstar)>c.thr)
-    })
-    return(rejected)
-}
-rejected.n <- function(dstar,n.thr) {
-    r <- rank(abs(dstar))
-    mxr <- max(r)
-    rejected <- lapply(n.thr, function(n) {
-        r > mxr - n
-    })
-    return(rejected)
-}
-ff <- function(rejected,genes.diff) {
-    nr <- unlist(lapply(rejected, sum, na.rm=TRUE))
-    V <- unlist(lapply(rejected, function(r) sum(r[-genes.diff],na.rm=TRUE)))
-    T <- unlist(lapply(rejected, function(r) sum(!r[genes.diff],na.rm=TRUE)))
-    fdr <- V/nr
-    fnr <- T/length(genes.diff)
-    if(any(nr==0)) {
-        wh <- which(nr==0)
-        fdr[wh] <- 0
-        fnr[wh] <- 1
-    }
-    c(fdr,fnr)
-}
-
-##' Plot FDR or FNR results of power.tibs()
-##'
-##' @title plot_fnr and plot_fdr
-##' @param x object returned by power.tibs()
-##' @export
-##' @return plot of fnr or fdr against sample size (number of pairs) is drawn on current graphics device
-##' @author Chris Wallace
-plot_fdr <- function(x) {
-     plotter(x,what="fdr")
-}
-
-##' @export
-##' @rdname plot_fdr
-plot_fnr <- function(x) {
-    plotter(x,what="fnr")
-}
-
-plotter <- function(x,what=c("fdr","fnr")) {
-        if("alpha" %in% colnames(x)) {
-            x$lt <- as.factor(x$alpha)
-            lt.nm <- "alpha"
-        } else {
-            x$lt <- as.factor(x$n)
-            lt.nm <- "n genes"
-        }
-
-        what=match.arg(what)
-        if(what=="fdr") {
-            p <- ggplot(x, aes_(x=~npairs,col=~lt,y=~fdr.med,ymin=~fdr.5,ymax=~fdr.95)) + ggtitle("False Discovery Rate") + ylab("FDR")
-        } else {
-            p <- ggplot(x, aes_(x=~npairs,col=~lt,y=~fnr.med,ymin=~fnr.5,ymax=~fnr.95)) + ggtitle("False Negative Rate") + ylab("FNR")
-        }
- 
-        p + geom_pointrange() + geom_path(aes_(lty=~lt)) + xlab("Sample Size") + facet_wrap(ngenes.diff ~ fold.diff, labeller=label_both) + scale_colour_discrete(lt.nm) + scale_linetype_discrete(lt.nm)
-}
-    
-    
