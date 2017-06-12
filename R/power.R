@@ -16,6 +16,7 @@ NULL
 ##' @param fold.diff fold difference at differentially expressed genes
 ##' @param nsim number of simulations
 ##' @param sample.sizes number of samples in simulated experiment, can be a vector
+##' @param v variance of expression for each gene, supply this if you don't have norm
 ##' @param p.thr p value threshold for calling significance, can be a vector to specify multiple values.  You should use only one of p.thr and n.thr.
 ##' @param n.thr threshold for calling the top n genes significant, can be a vector to specify multiple values.  You should use only one of p.thr and n.thr.
 ##' @param sample.sizes.stage2 number of pairs of samples in an optional stage 2 of the simulated experiment, can be a vector to specify multiple values.
@@ -39,10 +40,9 @@ NULL
 ##' p.thr.stage2=0.05, # alpha at stage 2 is 0.05 ...
 ##' p.stage2.method="bonf") # ... and is corrected for the number of genes tested (50) by Bonferroni
 #'tibs.power(norm, ngenes.diff = 50, fold.diff=2, nsim=10, sample.sizes=8, p.thr=0.05/c(200,500,1000,2000))
-  
-
-tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
+tibs.power <- function(norm=NULL,ngenes.diff,fold.diff,nsim,
                        sample.sizes,
+                       v=NULL,
                        sample.ratio=1,
                        p.thr=numeric(0),
                        n.thr=numeric(0),
@@ -60,7 +60,9 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
     ##     stop("only single values for sample.sizes.stage2 and p.thr.stage2 can be given at this stage")    
     
     ## set up
-    ngenes <- nrow(norm)
+    if(!is.null(norm))
+        v <- apply(norm,1,var)
+    ngenes <- length(v)
     vars <- list(ngenes.diff=ngenes.diff,fold.diff=fold.diff,ngroup1=sample.sizes,sample.ratio=sample.ratio)   
     if(length(p.thr)) {
         vars <- c(vars,list(alpha=p.thr))
@@ -83,7 +85,6 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
     pb <- txtProgressBar(min = 0, max = length(retlist), style = 3)
                                         #done <- mclapply(seq_along(retlist), function(i) {
     i=0
-    v <- apply(norm,1,var)
     retlist <- mclapply(retlist, function(ret) {
         i=i +1
         setTxtProgressBar(pb, i); 
