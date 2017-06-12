@@ -106,7 +106,7 @@ tibs.power <- function(norm,ngenes.diff,fold.diff,nsim,
             ## stage one
             dstar <- simindep(v,ng1,ng2,genes.diff,fold.diff)
             rejected <- if(length(p.thr)) {
-                            rejected.p(dstar,ret$alpha,ng1+ng2-1)
+                            rejected.p(dstar,p.thr=ret$alpha,df=ng1+ng2-2)
                         } else {
                             rejected.n(dstar,ret$n)
                         }
@@ -156,10 +156,11 @@ simindep <- function(v,nstar1,nstar2=nstar1,genes.diff,fold.diff) {
     return(d)
 }
 
-rejected.p <- function(dstar,p.thr,nstar) {
+rejected.p <- function(dstar,p.thr,df) {
+    ## c.thr <- qt(p.thr/2,df,lower.tail=FALSE) 
     rejected <- lapply(p.thr, function(p) {
-        c.thr <- qt(p/2,nstar-1,lower.tail=FALSE)    
-        ifelse(is.na(dstar), FALSE, abs(dstar)>c.thr)
+        thr <- qt(p/2,df,lower.tail=FALSE) 
+        ifelse(is.na(dstar), FALSE, abs(dstar)>thr)
     })
     return(rejected)
 }
